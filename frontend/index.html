@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Pannes - BDOM</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 15px 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .btn-logout { background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-logout:hover { background-color: #bd2130; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #007bff; color: white; }
+        tr:hover { background-color: #f1f1f1; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h2>Tableau de Bord des Pannes</h2>
+    <div>
+        <span>Connecté en tant que : <b id="userDisplay"></b></span>
+        <button class="btn-logout" onclick="deconnexion()">Déconnexion</button>
+    </div>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Équipement</th>
+            <th>Description</th>
+            <th>Statut</th>
+            <th>Date d'apparition</th>
+        </tr>
+    </thead>
+    <tbody id="pannesTableBody">
+        <tr>
+            <td colspan="5" style="text-align: center;">Chargement des pannes...</td>
+        </tr>
+    </tbody>
+</table>
+
+<script>
+    // Adresse locale du serveur Django pour vos tests
+    const API_URL = "http://127.0.0.1:8000/api/";
+
+    // 1. Vérification de la session
+    const token = localStorage.getItem('access_token');
+    const username = localStorage.getItem('username');
+
+    if (!token) {
+        // Redirection si l'utilisateur n'est pas connecté
+        window.location.href = "login.html";
+    } else {
+        document.getElementById('userDisplay').textContent = username || 'Utilisateur';
+    }
+
+    // 2. Fonction de déconnexion
+    function deconnexion() {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('username');
+        window.location.href = "login.html";
+    }
+
+    // 3. Charger les pannes autorisées via le Token Bearer
+    async function chargerPannes() {
+        try {
+            const response = await fetch(`${API_URL}pannes/`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.status === 401) {
+                // Si le token a expiré, on déconnecte
+                deconnexion();
+                return;
+            }
+
+            const pannes = await response.json();
+            const tableBody = document.getElementById('pannesTableBody');
+            tableBody.innerHTML = "";
+
+            if (pannes.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" style="text-align: center;">Aucune panne enregistrée.</td></tr>`;
+                return;
+            }
+
+            pannes.forEach(panne => {
+                const row = `
+                    <tr>
+                        <td>${panne.id}</td>
+                        <td>${panne.equipement_nom || panne.equipement || 'N/A'}</td>
+                        <td>${panne.description || 'Sans description'}</td>
+                        <td>${panne.statut || 'En attente'}</td>
+                        <td>${panne.date_creation ? new Date(panne.date_creation).toLocaleDateString('fr-FR') : 'N/A'}</td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+
+        } catch (error) {
+            console.error("Erreur :", error);
+            document.getElementById('pannesTableBody').innerHTML = `
+                <tr><td colspan="5" style="text-align: center; color: red;">Erreur de chargement des données.</td></tr>
+            `;
+        }
+    }
+
+    // Lancement du chargement au démarrage de la page
+    chargerPannes();
+</script>
+
+</body>
+</html>

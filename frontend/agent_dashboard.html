@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Espace Agent - Gestion des Pannes BDOM</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #f4f6f9; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; background: #2c3e50; color: white; padding: 15px 20px; border-radius: 6px; }
+        .btn-logout { background: #e74c3c; color: white; border: none; padding: 10px 18px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-logout:hover { background: #c0392b; }
+        .container { margin-top: 25px; display: grid; grid-template-columns: 1fr 2fr; gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        h2 { margin-bottom: 15px; color: #34495e; font-size: 18px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #2c3e50; font-weight: 600; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .btn-submit { width: 100%; padding: 10px; background-color: #2ecc71; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-submit:hover { background-color: #27ae60; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #e2e8f0; padding: 10px; text-align: left; }
+        th { background-color: #3498db; color: white; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .statut-attente { background-color: #ffeaa7; color: #d63031; }
+        .statut-resolu { background-color: #55efc4; color: #00b894; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Espace Agent - Signalement de Pannes</h1>
+    <button class="btn-logout" onclick="logout()">Déconnexion</button>
+</div>
+
+<div class="container">
+    <!-- Formulaire d'ajout -->
+    <div class="card">
+        <h2>Déclarer une Panne</h2>
+        <form id="panneForm">
+            <div class="form-group">
+                <label for="equipement">ID Équipement</label>
+                <input type="number" id="equipement" placeholder="Ex: 1" required>
+            </div>
+            <div class="form-group">
+                <label for="description">Description du problème</label>
+                <textarea id="description" rows="4" placeholder="Décrivez la panne..." required></textarea>
+            </div>
+            <button type="submit" class="btn-submit">Signaler la panne</button>
+        </form>
+    </div>
+
+    <!-- Liste des pannes déclarées -->
+    <div class="card">
+        <h2>Mes Signalements</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Équipement</th>
+                    <th>Description</th>
+                    <th>Statut</th>
+                </tr>
+            </thead>
+            <tbody id="pannes-agent-body">
+                <tr><td colspan="3" style="text-align: center;">Chargement...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const token = localStorage.getItem('accessToken');
+    if (!token) { window.location.href = 'login.html'; }
+
+    async function chargerMesPannes() {
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/pannes/', {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (response.ok) {
+                const pannes = await response.json();
+                const tbody = document.getElementById('pannes-agent-body');
+                tbody.innerHTML = '';
+                
+                if (pannes.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align: center;">Aucune panne enregistrée.</td></tr>';
+                    return;
+                }
+
+                pannes.forEach(p => {
+                    const statutClass = p.statut && p.statut.toLowerCase().includes('ré') ? 'statut-resolu' : 'statut-attente';
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>Équipement #${p.equipement}</td>
+                            <td>${p.description}</td>
+                            <td><span class="badge ${statutClass}">${p.statut || 'En attente'}</span></td>
+                        </tr>
+                    `;
+                });
+            }
+        } catch (err) {
+            console.error('Erreur:', err);
+        }
+    }
+
+    document.getElementById('panneForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const equipementId = document.getElementById('equipement').value;
+        const desc = document.getElementById('description').value;
+
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/pannes/', {
+                method: 'POST',
+                headers: { 
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json' 
+                },
+                body: JSON.stringify({ equipement: equipementId, description: desc })
+            });
+
+            if (response.ok) {
+                document.getElementById('panneForm').reset();
+                chargerMesPannes();
+            } else {
+                alert("Erreur lors de l'envoi de la panne.");
+            }
+        } catch (err) {
+            console.error('Erreur d\'envoi:', err);
+        }
+    });
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = 'login.html';
+    }
+
+    chargerMesPannes();
+</script>
+
+</body>
+</html>

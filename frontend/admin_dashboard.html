@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Pannes BDOM</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: #f4f6f9; padding: 20px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; background: #2c3e50; color: white; padding: 15px 20px; border-radius: 6px; margin-bottom: 20px; }
+        .user-info { font-weight: 600; font-size: 16px; }
+        .btn-logout { background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-logout:hover { background: #c0392b; }
+
+        /* Barre de recherche globale */
+        .search-bar { width: 100%; padding: 12px 15px; border: 2px solid #3498db; border-radius: 6px; font-size: 15px; margin-bottom: 20px; outline: none; }
+        .search-bar:focus { border-color: #2980b9; box-shadow: 0 0 5px rgba(52, 152, 219, 0.4); }
+
+        .layout { display: flex; gap: 20px; flex-wrap: wrap; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); flex: 1; min-width: 300px; }
+        .card-table { flex: 2; min-width: 500px; }
+
+        h2 { margin-bottom: 15px; color: #34495e; font-size: 18px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #2c3e50; font-weight: 600; }
+        .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .btn-submit { width: 100%; padding: 10px; background-color: #2ecc71; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-submit:hover { background-color: #27ae60; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+        th { background-color: #3498db; color: white; }
+        tr:nth-child(even) { background-color: #f8fafc; }
+        .badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .statut-attente { background-color: #ffeaa7; color: #d63031; }
+        .statut-resolu { background-color: #55efc4; color: #00b894; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="user-info" id="user-display">Chargement de la session...</div>
+    <button class="btn-logout" onclick="logout()">Déconnexion</button>
+</div>
+
+<!-- Barre de recherche automatique -->
+<input type="text" id="searchInput" class="search-bar" placeholder="🔍 Rechercher automatiquement (Service, Équipement, Description, Statut)..." onkeyup="filtrerAutomatique()">
+
+<div class="layout">
+    <!-- Formulaire Agent (affiché selon le rôle) -->
+    <div class="card" id="form-card" style="display: none;">
+        <h2>Déclarer une Panne</h2>
+        <form id="panneForm">
+            <div class="form-group">
+                <label for="equipement">ID Équipement</label>
+                <input type="number" id="equipement" placeholder="Ex: 1" required>
+            </div>
+            <div class="form-group">
+                <label for="description">Description de la panne</label>
+                <textarea id="description" rows="4" placeholder="Décrivez le problème..." required></textarea>
+            </div>
+            <button type="submit" class="btn-submit">Signaler la panne</button>
+        </form>
+    </div>
+
+    <!-- Tableau principal de supervision -->
+    <div class="card card-table">
+        <h2>Liste des Pannes Enregistrées</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Site / Service</th>
+                    <th>Équipement</th>
+                    <th>Description</th>
+                    <th>Statut</th>
+                </tr>
+            </thead>
+            <tbody id="pannes-table-body">
+                <tr><td colspan="4" style="text-align: center;">Chargement automatique des données...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const token = localStorage.getItem('accessToken');
+    const userRole = localStorage.getItem('userRole');
+
+    if (!token) { window.location.href = 'login.html'; }
+
+    let pannesGlobales = [];
+
+    // 1. Détection automatique du profil utilisateur
+    function configurerInterface() {
+        const userDisplay = document.getElementById('user-display');
+        const formCard = document.getElementById('form-card');
+
+        if (userRole === 'admin') {
+            userDisplay.innerText = "Espace Administrateur - Supervision Globale";
+            formCard.style.display = "none"; 
+        } else {
+            // Texte propre affiché sans aucune valeur 'null'
+            userDisplay.innerText = "Espace Agent (BDOM)";
+            formCard.style.display = "block"; 
+        }
+    }
+
+    // 2. Chargement automatique des pannes
+    async function chargerDonnees() {
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/pannes/', {
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+            });
+
+            if (response.status === 401) { logout(); return; }
+
+            if (response.ok) {
+                pannesGlobales = await response.json();
+                afficherPannes(pannesGlobales);
+            }
+        } catch (err) {
+            console.error('Erreur:', err);
+        }
+    }
+
+    // 3. Affichage du tableau
+    function afficherPannes(liste) {
+        const tbody = document.getElementById('pannes-table-body');
+        tbody.innerHTML = '';
+
+        if (liste.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Aucun résultat trouvé.</td></tr>';
+            return;
+        }
+
+        liste.forEach(p => {
+            let serviceNom = 'BDOM Central';
+            if (p.service) {
+                serviceNom = typeof p.service === 'object' ? (p.service.nom || p.service.nom_service) : (p.service_nom || p.service);
+            }
+
+            let equipementNom = 'N/A';
+            if (p.equipement) {
+                equipementNom = typeof p.equipement === 'object' ? (p.equipement.nom || p.equipement.designation) : (p.equipement_nom || 'Équipement #' + p.equipement);
+            }
+
+            const statutClass = p.statut && p.statut.toLowerCase().includes('ré') ? 'statut-resolu' : 'statut-attente';
+
+            tbody.innerHTML += `
+                <tr>
+                    <td><strong>${serviceNom}</strong></td>
+                    <td>${equipementNom}</td>
+                    <td>${p.description}</td>
+                    <td><span class="badge ${statutClass}">${p.statut || 'En attente'}</span></td>
+                </tr>
+            `;
+        });
+    }
+
+    // 4. Filtrage automatique lors de la frappe
+    function filtrerAutomatique() {
+        const recherche = document.getElementById('searchInput').value.toLowerCase();
+        
+        const resultats = pannesGlobales.filter(p => {
+            const service = (p.service_nom || p.service || '').toString().toLowerCase();
+            const equipement = (p.equipement_nom || p.equipement || '').toString().toLowerCase();
+            const description = (p.description || '').toLowerCase();
+            const statut = (p.statut || '').toLowerCase();
+
+            return service.includes(recherche) || 
+                   equipement.includes(recherche) || 
+                   description.includes(recherche) || 
+                   statut.includes(recherche);
+        });
+
+        afficherPannes(resultats);
+    }
+
+    // 5. Envoi automatique du formulaire
+    document.getElementById('panneForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const equipementId = document.getElementById('equipement').value;
+        const desc = document.getElementById('description').value;
+
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/pannes/', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ equipement: equipementId, description: desc })
+            });
+
+            if (response.ok) {
+                document.getElementById('panneForm').reset();
+                chargerDonnees(); 
+            }
+        } catch (err) {
+            console.error('Erreur:', err);
+        }
+    });
+
+    function logout() {
+        localStorage.clear();
+        window.location.href = 'login.html';
+    }
+
+    // Initialisation au chargement
+    configurerInterface();
+    chargerDonnees();
+</script>
+
+</body>
+</html>
